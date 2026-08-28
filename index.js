@@ -1,6 +1,20 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const fetch = require('node-fetch');
+const express = require('express');
 
+// Express Server to satisfy Render Free Tier health check
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+    res.send('Kaonashi Cove Discord Bot is active!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Web server listening on port ${PORT}`);
+});
+
+// Discord Bot Client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -9,25 +23,31 @@ const client = new Client({
 });
 
 client.on('ready', () => {
-    console.log(`Bot logged in as ${client.user.tag}`);
+    console.log(`Bot active and monitoring member updates as ${client.user.tag}`);
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
-    const removedRoles = oldMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+    const oldRoles = new Set(oldMember.roles.cache.keys());
+    const newRoles = new Set(newMember.roles.cache.keys());
 
-    for (const [roleId] of addedRoles) {
-        await notifyForum('add', newMember.id, roleId);
+    // Roles added on Discord
+    for (const roleId of newRoles) {
+        if (!oldRoles.has(roleId)) {
+            await notifyForum('add', newMember.id, roleId);
+        }
     }
 
-    for (const [roleId] of removedRoles) {
-        await notifyForum('remove', newMember.id, roleId);
+    // Roles removed on Discord
+    for (const roleId of oldRoles) {
+        if (!newRoles.has(roleId)) {
+            await notifyForum('remove', newMember.id, roleId);
+        }
     }
 });
 
 async function notifyForum(action, discordUserId, discordRoleId) {
     try {
-        await fetch('https://kaonashicove.gamer.free/forums/ext/kaonashicove/discordsync/webhook.php', {
+        const response = await fetch('https://kaonashicove.gamer.free/forums/ext/kaonashicove/discordsync/webhook.php', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -39,8 +59,10 @@ async function notifyForum(action, discordUserId, discordRoleId) {
                 discord_role_id: discordRoleId
             })
         });
+        const result = await response.text();
+        console.log(`Forum Sync (${action}): User ${discordUserId}, Role ${discordRoleId} => Response: ${result}`);
     } catch (err) {
-        console.error('Failed to sync role update to phpBB forum:', err);
+        console.error('Failed to send webhook update to phpBB forum:', err);
     }
 }
 
